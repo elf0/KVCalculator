@@ -1,3 +1,7 @@
+//License: Public Domain
+//Author: elf
+//EMail: elf@elf0.org
+
 #include <stdio.h>
 #include <map>
 #include <string>
