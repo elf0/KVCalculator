@@ -246,7 +246,7 @@ static E8 ParseArguments(String *pArguments, const String **ppArgumentsEnd, cons
 
 inline
 static E8 EvaluateExpression(Expression &expression){
-  fprintf(stderr, "Evaluate(%llu): %.*s\n", g_uLine, (int)expression.strExpression.uSize, (char*)expression.strExpression.pBegin);
+//  fprintf(stderr, "Evaluate(%llu): %.*s\n", g_uLine, (int)expression.strExpression.uSize, (char*)expression.strExpression.pBegin);
   const String &strExpression = expression.strExpression;
   String szArguments[MAX_ARGUMENTS];
   const String *pArgumentsEnd = szArguments + MAX_ARGUMENTS;
