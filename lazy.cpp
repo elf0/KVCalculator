@@ -198,7 +198,7 @@ static E8 onStatement(void *pContext, const C *pKey, const C *pKeyEnd, const C *
     if(pr.second)
       return 0;
 
-    fprintf(stderr, "%llu: \"%.*s\" redefined!\n", g_uLine, (int)strKey.uSize, strKey.pBegin);
+    fprintf(stderr, "Error(%llu): \"%.*s\" redefined!\n", g_uLine, (int)strKey.uSize, strKey.pBegin);
     return 1;
   }
 
