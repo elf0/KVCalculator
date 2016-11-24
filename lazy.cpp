@@ -142,23 +142,35 @@ struct Value{
   I64 iDenominator = 1;
 };
 
-typedef std::map<String, Value> Variables;
-static Variables g_variables;
+struct Expression{
+  Expression(const C *p, std::size_t s): strExpression(p, s){}
+  Expression(const String &e): strExpression(e){}
+  B bEvaluated = 0;
+  union{
+    Value value;
+    String strExpression;
+  };
+};
+
+typedef std::map<String, Expression> StringMap;
+static StringMap g_definitions;
+
 #define MAX_ARGUMENTS 16
-static String g_szArguments[MAX_ARGUMENTS];
-static String *g_pArgumentsEnd = g_szArguments + MAX_ARGUMENTS;
 static U64 g_uLine;
 
 static E8 onStatement(void *pContext, const C *pKey, const C *pKeyEnd, const C *pValue, const C *pValueEnd);
 
 inline
-static E8 ParseExpression(const C *pBegin, const C *pEnd, Value &value);
+static E8 EvaluateExpression(Expression &expression);
 
 inline
 static E8 Call(const String &strName, const String *szArguments, U8 uArguments, Value &value);
 
 inline
-static E8 ParseArgument(const String &strArgument, Value &value);
+static E8 EvaluateArgument(const C *pBegin, const C *pEnd, Value &value);
+
+inline
+static E8 Output(const C *pExpression, const C *pExpressionEnd);
 
 int main(int argc, char *argv[]){
   if(argc != 2)
@@ -173,16 +185,6 @@ int main(int argc, char *argv[]){
   Byte *pEnd = pBegin + file.file.meta.st_size;
   E8 e = KVReader_Parse(0, pBegin, pEnd, onStatement);
 
-
-  for(auto &pr: g_variables){
-    const String &key = pr.first;
-    const Value &value = pr.second;
-    if(value.iDenominator == 1)
-      fprintf(stderr, "%.*s: %lld\n", (int)(key.uSize), (char*)key.pBegin, value.iNumerator);
-    else
-      fprintf(stderr, "%.*s: %lld/%lld=%f\n", (int)(key.uSize), (char*)key.pBegin, value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
-  }
-
   MMFile_Close(&file);
   return e;
 }
@@ -190,65 +192,90 @@ int main(int argc, char *argv[]){
 static E8 onStatement(void *pContext, const C *pKey, const C *pKeyEnd, const C *pValue, const C *pValueEnd){
   ++g_uLine;
   //fprintf(stderr, "%llu: \"%.*s: %.*s\"\n", g_uLine, (int)(pKeyEnd - pKey), pKey, (int)(pValueEnd - pValue), pValue);
-  Value vNew;
-  E8 e = ParseExpression(pValue, pValueEnd, vNew);
-  if(e)
-    return e;
+  if(*pKey != '$'){
+    String strKey(pKey, pKeyEnd - pKey);
+    auto pr = g_definitions.emplace(strKey, String(pValue, pValueEnd - pValue));
+    if(pr.second)
+      return 0;
 
-  auto pr = g_variables.emplace(String(pKey, pKeyEnd - pKey), vNew);
-  if(pr.second){
+    fprintf(stderr, "%llu: \"%.*s\" redefined!\n", g_uLine, (int)strKey.uSize, strKey.pBegin);
+    return 1;
   }
-  else{//Found
-    Value &vOld = pr.first->second;
-    if(vNew.iNumerator != vOld.iNumerator){
-      //      fprintf(stderr, "%.*s(%llu) = %llu\n"
-      //              , (int)(pKeyEnd - pKey), pKey
-      //              , vOld.iNumerator
-      //              , vNew.iNumerator);
-      vOld = vNew;
-    }
-  }
-  return 0;
+
+
+  //  ++pKey;
+  //  String strKey(pKey, pKeyEnd - pKey);
+  //  if(strKey.uSize == 0){
+  return Output(pValue, pValueEnd);
+  //  }
 }
 
 inline
-static E8 ParseExpression(const C *pBegin, const C *pEnd, Value &value){
-  String *pArgument = g_szArguments;
+static E8 ParseArguments(String *pArguments, const String **ppArgumentsEnd, const C *pBegin, const C *pEnd){
+  const String *pArgumentsEnd = *ppArgumentsEnd;
+  String *pArgument = pArguments;
   const C *p = pBegin;
-  while(*p++ == 0x20){
-    if(pArgument == g_pArgumentsEnd){
+
+  if(*p != 0x20){
+    fprintf(stderr, "Error(%llu): Expect a space(0x20)!\n", g_uLine);
+    return 1;
+  }
+
+  do{
+    ++p;
+    if(pArgument == pArgumentsEnd){
       fprintf(stderr, "Error(%llu): Too much arguments!\n", g_uLine);
       return 1;
     }
 
     pArgument->pBegin = p;
-    while(*p != 0x20 && *p != '\n')
+    while(*p != 0x20 && p != pEnd)
       ++p;
     pArgument->uSize = p - pArgument->pBegin;
     ++pArgument;
-    if(*p == '\n')
-      break;
+  }while(*p == 0x20);
+
+  if(p != pEnd){
+    fprintf(stderr, "Error(%llu): Invalid tail \"%.*s\"!\n", g_uLine, (int)(pEnd - p), (char*)p);
+    return 1;
   }
 
-  U8 uArguments = pArgument - g_szArguments;
+  *ppArgumentsEnd = pArgument;
+  return 0;
+}
+
+inline
+static E8 EvaluateExpression(Expression &expression){
+  fprintf(stderr, "Evaluate(%llu): %.*s\n", g_uLine, (int)expression.strExpression.uSize, (char*)expression.strExpression.pBegin);
+  const String &strExpression = expression.strExpression;
+  String szArguments[MAX_ARGUMENTS];
+  const String *pArgumentsEnd = szArguments + MAX_ARGUMENTS;
+  E8 e = ParseArguments(szArguments, &pArgumentsEnd, strExpression.pBegin, strExpression.pBegin + strExpression.uSize);
+  if(e)
+    return e;
+
+  U8 uArguments = pArgumentsEnd - szArguments;
   //  fprintf(stderr, "%llu: %u arguments\n", g_uLine, uArguments);
 
   if(uArguments){
-    pArgument = g_szArguments;
-    const C *p = pArgument->pBegin;
     E8 e;
-    if(uArguments == 1)
-      e = ParseArgument(*pArgument, value);
+    if(uArguments == 1){
+      const String &argument = szArguments[0];
+      e = EvaluateArgument(argument.pBegin, argument.pBegin + argument.uSize, expression.value);
+    }
     else
-      e = Call(*pArgument, pArgument + 1, uArguments - 1, value);
+      e = Call(szArguments[0], &szArguments[1], uArguments - 1, expression.value);
 
     if(e)
       return e;
+
+    expression.bEvaluated = 1;
   }
   else{
-    fprintf(stderr, "Error(%llu): Empty definition!\n", g_uLine);
+    fprintf(stderr, "Error(%llu): Empty expression!\n", g_uLine);
     return 1;
   }
+
   return 0;
 }
 
@@ -269,15 +296,17 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return 1;
     }
 
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
+    ++pArgument;
 
     while(pArgument != pArgumentEnd){
-      e = ParseArgument(*pArgument++, vRight);
+      e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
 
+      ++pArgument;
       vLeft += vRight;
     }
 
@@ -289,14 +318,17 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return 1;
     }
 
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
+    ++pArgument;
     while(pArgument != pArgumentEnd){
-      e = ParseArgument(*pArgument++, vRight);
+      e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
+
+      ++pArgument;
       vLeft -= vRight;
     }
 
@@ -308,14 +340,17 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return 1;
     }
 
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
+    ++pArgument;
     while(pArgument != pArgumentEnd){
-      e = ParseArgument(*pArgument++, vRight);
+      e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
+
+      ++pArgument;
       vLeft *= vRight;
     }
 
@@ -327,14 +362,17 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return 1;
     }
 
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
+    ++pArgument;
     while(pArgument != pArgumentEnd){
-      e = ParseArgument(*pArgument++, vRight);
+      e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
+
+      ++pArgument;
       vLeft /= vRight;
     }
 
@@ -346,15 +384,19 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return 1;
     }
 
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
+    ++pArgument;
+
     bool bCompare;
     while(pArgument != pArgumentEnd){
-      e = ParseArgument(*pArgument++, vRight);
+      e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
+
+      ++pArgument;
       bCompare = vLeft == vRight;
       if(!bCompare)
         break;
@@ -368,21 +410,25 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       fprintf(stderr, "Error(%llu): Argument count must greater than 1, but %u!\n", g_uLine, uArguments);
       return 1;
     }
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
-    e = ParseArgument(*pArgument++, vRight);
+    ++pArgument;
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
     if(e)
       return e;
+
+    ++pArgument;
 
     bool bCompare;
     if(p[1] == '='){
       while(pArgument != pArgumentEnd){
-        e = ParseArgument(*pArgument++, vRight);
+        e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
         if(e)
           return e;
 
+        ++pArgument;
         bCompare = vLeft.iNumerator <= vRight.iNumerator;
 
         if(!bCompare)
@@ -393,9 +439,11 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
     }
     else{
       while(pArgument != pArgumentEnd){
-        e = ParseArgument(*pArgument++, vRight);
+        e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
         if(e)
           return e;
+
+        ++pArgument;
 
         bCompare = vLeft.iNumerator < vRight.iNumerator;
 
@@ -414,20 +462,25 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       fprintf(stderr, "Error(%llu): Argument count must greater than 1, but %u!\n", g_uLine, uArguments);
       return 1;
     }
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
-    e = ParseArgument(*pArgument++, vRight);
+    ++pArgument;
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
     if(e)
       return e;
+
+    ++pArgument;
 
     bool bCompare;
     if(p[1] == '='){
       while(pArgument != pArgumentEnd){
-        e = ParseArgument(*pArgument++, vRight);
+        e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
         if(e)
           return e;
+
+        ++pArgument;
 
         bCompare = vLeft.iNumerator >= vRight.iNumerator;
 
@@ -439,9 +492,11 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
     }
     else{
       while(pArgument != pArgumentEnd){
-        e = ParseArgument(*pArgument++, vRight);
+        e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
         if(e)
           return e;
+
+        ++pArgument;
 
         bCompare = vLeft.iNumerator > vRight.iNumerator;
 
@@ -460,19 +515,23 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       fprintf(stderr, "Error(%llu): Argument count must be 3, but %u!\n", g_uLine, uArguments);
       return 1;
     }
-    e = ParseArgument(*pArgument++, vLeft);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vLeft);
     if(e)
       return e;
 
-    e = ParseArgument(*pArgument++, vRight);
+    ++pArgument;
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
     if(e)
       return e;
+
+    ++pArgument;
 
     Value vFalse;
-    e = ParseArgument(*pArgument++, vFalse);
+    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vFalse);
     if(e)
       return e;
 
+    ++pArgument;
     value = vLeft.iNumerator? vRight : vFalse;
   }break;
   }
@@ -481,9 +540,7 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
 }
 
 inline
-static E8 ParseArgument(const String &strArgument, Value &value){
-  const C *pBegin = strArgument.pBegin;
-  const C *pEnd = pBegin + strArgument.uSize;
+static E8 EvaluateArgument(const C *pBegin, const C *pEnd, Value &value){
   B bSigned = 0;
   if(*pBegin == '-'){
     ++pBegin;
@@ -494,7 +551,7 @@ static E8 ParseArgument(const String &strArgument, Value &value){
     const C *p = pBegin;
     I64 iValue = *p++ - '0';
     if(String_ParseU64(&p, (U64*)&iValue) || iValue < 0){
-      fprintf(stderr, "Error(%llu): Integer(%.*s) overflowed!\n", g_uLine, (int)strArgument.uSize, (char*)strArgument.pBegin);
+      fprintf(stderr, "Error(%llu): Integer(%.*s) overflowed!\n", g_uLine, (int)(pEnd - pBegin), (char*)pBegin);
       return 1;
     }
 
@@ -508,17 +565,63 @@ static E8 ParseArgument(const String &strArgument, Value &value){
   }
   else{
     std::size_t uSize = pEnd - pBegin;
-    auto iter = g_variables.find(String(pBegin, uSize));
-    if(iter == g_variables.end()){
+    auto iter = g_definitions.find(String(pBegin, uSize));
+    if(iter == g_definitions.end()){
       fprintf(stderr, "Error(%llu): \"%.*s\" not defined!\n", g_uLine, (int)uSize, (char*)pBegin);
       return 1;
     }
 
-    value = iter->second;
+    Expression &expression = iter->second;
+    if(!expression.bEvaluated){
+      E8 e = EvaluateExpression(expression);
+      if(e)
+        return e;
+    }
+    value = expression.value;
   }
 
   if(bSigned)
     value.iNumerator = -value.iNumerator;
+
+  return 0;
+}
+
+inline
+static E8 Output(const C *pExpression, const C *pExpressionEnd){
+
+  const C *p = pExpression;
+  if(*p != 0x20){
+    fprintf(stderr, "Error(%llu): Expect a space(0x20)!\n", g_uLine);
+    return 1;
+  }
+
+  Value value;
+  const C *pArgument;
+  std::size_t uArgument;
+
+  do{
+    ++p;
+
+    pArgument = p;
+    while(*p != 0x20 && *p != '\n')
+      ++p;
+    uArgument = p - pArgument;
+    if(EvaluateArgument(pArgument, p, value))
+      fprintf(stderr, "Error(%llu): Evaluate failed!\n", g_uLine);
+    else{
+      if(value.iDenominator == 1)
+        fprintf(stderr, "%lld\n", value.iNumerator);
+      else if(value.iNumerator == 0)
+        fprintf(stderr, "0\n");
+      else
+        fprintf(stderr, "%lld/%lld=%f\n", value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
+    }
+  }while(*p == 0x20);
+
+  if(*p != '\n'){
+    fprintf(stderr, "Error(%llu): Expect a line feed(0x0A)!\n", g_uLine);
+    return 1;
+  }
 
   return 0;
 }
