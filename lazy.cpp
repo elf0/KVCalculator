@@ -607,14 +607,14 @@ static E8 Output(const C *pExpression, const C *pExpressionEnd){
       ++p;
     uArgument = p - pArgument;
     if(EvaluateArgument(pArgument, p, value))
-      fprintf(stderr, "Error(%llu): Evaluate failed!\n", g_uLine);
+      fprintf(stderr, "Error(%llu): Evaluate \"%.*s\" failed!\n", g_uLine, (int)uArgument, (char*)pArgument);
     else{
       if(value.iDenominator == 1)
-        printf("%lld\n", value.iNumerator);
+        printf("%.*s: %lld\n", (int)uArgument, (char*)pArgument, value.iNumerator);
       else if(value.iNumerator == 0)
-        printf("0\n");
+        printf("%.*s: 0\n", (int)uArgument, (char*)pArgument);
       else
-        printf("%lld/%lld=%f\n", value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
+        printf("%.*s: %lld/%lld=%f\n", (int)uArgument, (char*)pArgument, value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
     }
   }while(*p == 0x20);
 
