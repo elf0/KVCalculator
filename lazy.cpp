@@ -610,11 +610,11 @@ static E8 Output(const C *pExpression, const C *pExpressionEnd){
       fprintf(stderr, "Error(%llu): Evaluate failed!\n", g_uLine);
     else{
       if(value.iDenominator == 1)
-        fprintf(stderr, "%lld\n", value.iNumerator);
+        printf("%lld\n", value.iNumerator);
       else if(value.iNumerator == 0)
-        fprintf(stderr, "0\n");
+        printf("0\n");
       else
-        fprintf(stderr, "%lld/%lld=%f\n", value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
+        printf("%lld/%lld=%f\n", value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
     }
   }while(*p == 0x20);
 
