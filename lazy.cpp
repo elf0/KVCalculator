@@ -12,10 +12,10 @@
 
 struct String{
   String(){}
-  String(const C *p, std::size_t s): pBegin(p), uSize(s){}
+  String(const C *p, U8 s): pBegin(p), uSize(s){}
 
   bool operator<(const String &right)const{
-    std::size_t uMin = uSize > right.uSize? right.uSize : uSize;
+    U8 uMin = uSize > right.uSize? right.uSize : uSize;
     const C *pL = pBegin;
     const C *pEnd = pL + uMin;
 
@@ -32,118 +32,24 @@ struct String{
   }
 
   const C *pBegin = nullptr;
-  std::size_t uSize = 0;
+  U8 uSize = 0;
 };
 
-//rational number
 struct Value{
-  Value(){}
-  Value(I64 n): iNumerator(n){}
-  Value(I64 n, I64 d): iNumerator(n), iDenominator(d){}
+  enum class Type: U8{
+    vtSource, vtBool, vtInteger, vtFloat, vFunction
+  };
 
-  bool operator==(const Value &right)const{
-    return (iNumerator == right.iNumerator) && (iDenominator == right.iDenominator);
-  }
-
-  void operator+=(const Value &right){
-    if(iDenominator == right.iDenominator)
-      iNumerator += right.iNumerator;
-    else{
-      iNumerator = iNumerator * right.iDenominator + right.iNumerator * iDenominator;
-      iDenominator *= right.iDenominator;
-    }
-
-    if(iDenominator != 1){
-      if(iNumerator % iDenominator == 0){
-        iNumerator /= iDenominator;
-        iDenominator = 1;
-      }
-    }
-  }
-
-  void operator-=(const Value &right){
-    if(iDenominator == right.iDenominator)
-      iNumerator -= right.iNumerator;
-    else{
-      iNumerator = iNumerator * right.iDenominator - right.iNumerator * iDenominator;
-      iDenominator *= right.iDenominator;
-    }
-
-    if(iDenominator != 1){
-      if(iNumerator % iDenominator == 0){
-        iNumerator /= iDenominator;
-        iDenominator = 1;
-      }
-    }
-  }
-
-  void operator*=(const Value &right){
-    if(iDenominator == right.iDenominator){
-      if(iDenominator == 1)
-        iNumerator *= right.iNumerator;
-      else{
-        if(iNumerator % iDenominator == 0)
-          iNumerator = iNumerator / iDenominator * right.iNumerator;
-        else if(right.iNumerator % iDenominator == 0){
-          iNumerator *= right.iNumerator / iDenominator;
-        }
-        else{
-          iNumerator *= right.iNumerator;
-          iDenominator *= iDenominator;
-        }
-      }
-    }
-    else{
-      if(iNumerator % right.iDenominator == 0)
-        iNumerator = iNumerator / right.iDenominator * right.iNumerator;
-      else if(right.iNumerator % iDenominator == 0){
-        iNumerator *= right.iNumerator / iDenominator;
-        iDenominator = right.iDenominator;
-      }
-      else{
-        iNumerator *= right.iNumerator;
-        iDenominator *= right.iDenominator;
-      }
-    }
-
-    if(iDenominator != 1){
-      if(iNumerator % iDenominator == 0){
-        iNumerator /= iDenominator;
-        iDenominator = 1;
-      }
-    }
-  }
-
-  void operator/=(const Value &right){
-    if(iDenominator == right.iDenominator)
-      iDenominator = right.iNumerator;
-    else{
-      if(iNumerator % right.iNumerator == 0)
-        iNumerator = iNumerator / right.iNumerator * right.iDenominator;
-      else if(right.iDenominator % iDenominator == 0){
-        iNumerator *= right.iDenominator / iDenominator;
-        iDenominator = right.iNumerator;
-      }
-      else{
-        iNumerator *= right.iDenominator;
-        iDenominator *= right.iNumerator;
-      }
-    }
-
-    if(iDenominator != 1){
-      if(iNumerator % iDenominator == 0){
-        iNumerator /= iDenominator;
-        iDenominator = 1;
-      }
-    }
-  }
-
-  I64 iNumerator = 0;
-  I64 iDenominator = 1;
+  Type type;
+  union{
+    B bValue;
+    I64 iValue;
+    F64 fValue;
+  };
 };
 
 struct Expression{
-  Expression(const C *p, std::size_t s): strExpression(p, s){}
+  Expression(const C *p, U8 s): strExpression(p, s){}
   Expression(const String &e): strExpression(e){}
   B bEvaluated = 0;
   union{
@@ -191,10 +97,22 @@ int main(int argc, char *argv[]){
 
 static E8 onStatement(void *pContext, const C *pKey, const C *pKeyEnd, const C *pValue, const C *pValueEnd){
   ++g_uLine;
-  //fprintf(stderr, "%llu: \"%.*s: %.*s\"\n", g_uLine, (int)(pKeyEnd - pKey), pKey, (int)(pValueEnd - pValue), pValue);
+  std::size_t uKey = pKeyEnd - pKey;
+  std::size_t uValue = pValueEnd - pValue;
+  //fprintf(stderr, "%llu: \"%.*s: %.*s\"\n", g_uLine, (int)uKey, pKey, (int)uValue, pValue);
+  if(uKey > 255){
+    fprintf(stderr, "Error(%llu): Key length must less than 256 bytes!\n", g_uLine);
+    return 1;
+  }
+
+  if(uValue > 255){
+    fprintf(stderr, "Error(%llu): Expression length must less than 256 bytes!\n", g_uLine);
+    return 1;
+  }
+
   if(*pKey != '$'){
-    String strKey(pKey, pKeyEnd - pKey);
-    auto pr = g_definitions.emplace(strKey, String(pValue, pValueEnd - pValue));
+    String strKey(pKey, uKey);
+    auto pr = g_definitions.emplace(strKey, String(pValue, uValue));
     if(pr.second)
       return 0;
 
@@ -204,7 +122,7 @@ static E8 onStatement(void *pContext, const C *pKey, const C *pKeyEnd, const C *
 
 
   //  ++pKey;
-  //  String strKey(pKey, pKeyEnd - pKey);
+  //  String strKey(pKey, uKey);
   //  if(strKey.uSize == 0){
   return Output(pValue, pValueEnd);
   //  }
@@ -246,7 +164,7 @@ static E8 ParseArguments(String *pArguments, const String **ppArgumentsEnd, cons
 
 inline
 static E8 EvaluateExpression(Expression &expression){
-//  fprintf(stderr, "Evaluate(%llu): %.*s\n", g_uLine, (int)expression.strExpression.uSize, (char*)expression.strExpression.pBegin);
+  //  fprintf(stderr, "Evaluate(%llu): %.*s\n", g_uLine, (int)expression.strExpression.uSize, (char*)expression.strExpression.pBegin);
   const String &strExpression = expression.strExpression;
   String szArguments[MAX_ARGUMENTS];
   const String *pArgumentsEnd = szArguments + MAX_ARGUMENTS;
@@ -306,8 +224,21 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       if(e)
         return e;
 
+      if(vLeft.type != vRight.type){
+        fprintf(stderr, "Error(%llu): Arguments must be same type!\n", g_uLine);
+        return 1;
+      }
+
       ++pArgument;
-      vLeft += vRight;
+
+      if(vLeft.type == Value::Type::vtInteger)
+        vLeft.iValue += vRight.iValue;
+      else if(vLeft.type == Value::Type::vtFloat)
+        vLeft.fValue += vRight.fValue;
+      else{
+        fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+        return 1;
+      }
     }
 
     value = vLeft;
@@ -328,8 +259,20 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       if(e)
         return e;
 
+      if(vLeft.type != vRight.type){
+        fprintf(stderr, "Error(%llu): Arguments must be same type!\n", g_uLine);
+        return 1;
+      }
+
       ++pArgument;
-      vLeft -= vRight;
+      if(vLeft.type == Value::Type::vtInteger)
+        vLeft.iValue -= vRight.iValue;
+      else if(vLeft.type == Value::Type::vtFloat)
+        vLeft.fValue -= vRight.fValue;
+      else{
+        fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+        return 1;
+      }
     }
 
     value = vLeft;
@@ -350,8 +293,20 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       if(e)
         return e;
 
+      if(vLeft.type != vRight.type){
+        fprintf(stderr, "Error(%llu): Arguments must be same type!\n", g_uLine);
+        return 1;
+      }
+
       ++pArgument;
-      vLeft *= vRight;
+      if(vLeft.type == Value::Type::vtInteger)
+        vLeft.iValue *= vRight.iValue;
+      else if(vLeft.type == Value::Type::vtFloat)
+        vLeft.fValue *= vRight.fValue;
+      else{
+        fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+        return 1;
+      }
     }
 
     value = vLeft;
@@ -372,8 +327,20 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       if(e)
         return e;
 
+      if(vLeft.type != vRight.type){
+        fprintf(stderr, "Error(%llu): Arguments must be same type!\n", g_uLine);
+        return 1;
+      }
+
       ++pArgument;
-      vLeft /= vRight;
+      if(vLeft.type == Value::Type::vtInteger)
+        vLeft.iValue /= vRight.iValue;
+      else if(vLeft.type == Value::Type::vtFloat)
+        vLeft.fValue /= vRight.fValue;
+      else{
+        fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+        return 1;
+      }
     }
 
     value = vLeft;
@@ -390,20 +357,18 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
 
     ++pArgument;
 
-    bool bCompare;
     while(pArgument != pArgumentEnd){
       e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
       if(e)
         return e;
 
       ++pArgument;
-      bCompare = vLeft == vRight;
-      if(!bCompare)
+      value.bValue = (vLeft.type != vRight.type? 0: (vLeft.iValue == vRight.iValue));
+      if(!value.bValue)
         break;
     }
 
-    value.iNumerator = bCompare;
-    value.iDenominator = 1;
+    value.type = Value::Type::vtBool;
   }break;
   case '<':{
     if(uArguments < 2){
@@ -415,13 +380,7 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return e;
 
     ++pArgument;
-    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
-    if(e)
-      return e;
 
-    ++pArgument;
-
-    bool bCompare;
     if(p[1] == '='){
       while(pArgument != pArgumentEnd){
         e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
@@ -429,9 +388,21 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
           return e;
 
         ++pArgument;
-        bCompare = vLeft.iNumerator <= vRight.iNumerator;
 
-        if(!bCompare)
+        if(vLeft.type != vRight.type)
+          value.bValue = 0;
+        else{
+          if(vLeft.type == Value::Type::vtFloat)
+            value.bValue = vLeft.fValue <= vRight.fValue;
+          else if(vLeft.type == Value::Type::vtInteger)
+            value.bValue = vLeft.iValue <= vRight.iValue;
+          else{
+            fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+            return 1;
+          }
+        }
+
+        if(!value.bValue)
           break;
 
         vLeft = vRight;
@@ -445,17 +416,26 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
 
         ++pArgument;
 
-        bCompare = vLeft.iNumerator < vRight.iNumerator;
+        if(vLeft.type != vRight.type)
+          value.bValue = 0;
+        else{
+          if(vLeft.type == Value::Type::vtFloat)
+            value.bValue = vLeft.fValue < vRight.fValue;
+          else if(vLeft.type == Value::Type::vtInteger)
+            value.bValue = vLeft.iValue < vRight.iValue;
+          else{
+            fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+            return 1;
+          }
+        }
 
-        if(!bCompare)
+        if(!value.bValue)
           break;
-
         vLeft = vRight;
       }
     }
 
-    value.iNumerator = bCompare;
-    value.iDenominator = 1;
+    value.type = Value::Type::vtBool;
   }break;
   case '>':{
     if(uArguments < 2){
@@ -467,13 +447,7 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return e;
 
     ++pArgument;
-    e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
-    if(e)
-      return e;
 
-    ++pArgument;
-
-    bool bCompare;
     if(p[1] == '='){
       while(pArgument != pArgumentEnd){
         e = EvaluateArgument(pArgument->pBegin, pArgument->pBegin + pArgument->uSize, vRight);
@@ -482,9 +456,20 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
 
         ++pArgument;
 
-        bCompare = vLeft.iNumerator >= vRight.iNumerator;
+        if(vLeft.type != vRight.type)
+          value.bValue = 0;
+        else{
+          if(vLeft.type == Value::Type::vtFloat)
+            value.bValue = vLeft.fValue >= vRight.fValue;
+          else if(vLeft.type == Value::Type::vtInteger)
+            value.bValue = vLeft.iValue >= vRight.iValue;
+          else{
+            fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+            return 1;
+          }
+        }
 
-        if(!bCompare)
+        if(!value.bValue)
           break;
 
         vLeft = vRight;
@@ -498,17 +483,27 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
 
         ++pArgument;
 
-        bCompare = vLeft.iNumerator > vRight.iNumerator;
+        if(vLeft.type != vRight.type)
+          value.bValue = 0;
+        else{
+          if(vLeft.type == Value::Type::vtFloat)
+            value.bValue = vLeft.fValue > vRight.fValue;
+          else if(vLeft.type == Value::Type::vtInteger)
+            value.bValue = vLeft.iValue > vRight.iValue;
+          else{
+            fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+            return 1;
+          }
+        }
 
-        if(!bCompare)
+        if(!value.bValue)
           break;
 
         vLeft = vRight;
       }
     }
 
-    value.iNumerator = bCompare;
-    value.iDenominator = 1;
+    value.type = Value::Type::vtBool;
   }break;
   case '?':{
     if(uArguments != 3){
@@ -532,7 +527,7 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
       return e;
 
     ++pArgument;
-    value = vLeft.iNumerator? vRight : vFalse;
+    value = vLeft.bValue? vRight : vFalse;
   }break;
   }
 
@@ -555,16 +550,24 @@ static E8 EvaluateArgument(const C *pBegin, const C *pEnd, Value &value){
       return 1;
     }
 
+    if(*p != '.'){
+      value.type = Value::Type::vtInteger;
+      value.iValue = iValue;
+    }
+    else{
+      value.type = Value::Type::vtFloat;
+      value.fValue = F64(iValue);
+      value.fValue += strtod((char*)p, (char**)&p);
+    }
+
     if(p != pEnd){
       fprintf(stderr, "Error(%llu): Invalid tail \"%.*s\"!\n", g_uLine, (int)(pEnd - p), (char*)p);
       return 1;
     }
 
-    value.iNumerator = iValue;
-    value.iDenominator = 1;
   }
   else{
-    std::size_t uSize = pEnd - pBegin;
+    U8 uSize = pEnd - pBegin;
     auto iter = g_definitions.find(String(pBegin, uSize));
     if(iter == g_definitions.end()){
       fprintf(stderr, "Error(%llu): \"%.*s\" not defined!\n", g_uLine, (int)uSize, (char*)pBegin);
@@ -580,8 +583,16 @@ static E8 EvaluateArgument(const C *pBegin, const C *pEnd, Value &value){
     value = expression.value;
   }
 
-  if(bSigned)
-    value.iNumerator = -value.iNumerator;
+  if(bSigned){
+    if(value.type == Value::Type::vtFloat)
+      value.fValue = -value.fValue;
+    else if(value.type == Value::Type::vtInteger)
+      value.iValue = -value.iValue;
+    else{
+      fprintf(stderr, "Error(%llu): Not supported opeartion!\n", g_uLine);
+      return 1;
+    }
+  }
 
   return 0;
 }
@@ -597,7 +608,7 @@ static E8 Output(const C *pExpression, const C *pExpressionEnd){
 
   Value value;
   const C *pArgument;
-  std::size_t uArgument;
+  U8 uArgument;
 
   do{
     ++p;
@@ -609,12 +620,12 @@ static E8 Output(const C *pExpression, const C *pExpressionEnd){
     if(EvaluateArgument(pArgument, p, value))
       fprintf(stderr, "Error(%llu): Evaluate \"%.*s\" failed!\n", g_uLine, (int)uArgument, (char*)pArgument);
     else{
-      if(value.iDenominator == 1)
-        printf("%.*s: %lld\n", (int)uArgument, (char*)pArgument, value.iNumerator);
-      else if(value.iNumerator == 0)
-        printf("%.*s: 0\n", (int)uArgument, (char*)pArgument);
-      else
-        printf("%.*s: %lld/%lld=%f\n", (int)uArgument, (char*)pArgument, value.iNumerator, value.iDenominator, (F64)value.iNumerator/(F64)value.iDenominator);
+      if(value.type == Value::Type::vtInteger)
+        printf("%.*s: %lld\n", (int)uArgument, (char*)pArgument, value.iValue);
+      else if(value.type == Value::Type::vtBool)
+        printf("%.*s: %s\n", (int)uArgument, (char*)pArgument, value.bValue? "true" : "false");
+      else if(value.type == Value::Type::vtFloat)
+        printf("%.*s: %f\n", (int)uArgument, (char*)pArgument, value.fValue);
     }
   }while(*p == 0x20);
 
