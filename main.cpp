@@ -372,10 +372,6 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
     if(e)
       return e;
 
-    e = ParseArgument(*pArgument++, vRight);
-    if(e)
-      return e;
-
     bool bCompare;
     if(p[1] == '='){
       while(pArgument != pArgumentEnd){
@@ -418,9 +414,6 @@ static E8 Call(const String &strName, const String *szArguments, U8 uArguments, 
     if(e)
       return e;
 
-    e = ParseArgument(*pArgument++, vRight);
-    if(e)
-      return e;
 
     bool bCompare;
     if(p[1] == '='){
