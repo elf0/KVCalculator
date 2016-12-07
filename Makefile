@@ -2,7 +2,13 @@ CC := g++
 CFLAGS := -std=c++11 -O3
 LDFLAGS :=
 
-all: kvc lazy
+all: vm kvc lazy
+
+vm: vm.o
+	$(CC) $(LDFLAGS) -o vm vm.o
+
+vm.o: vm.cpp vmi.h
+	$(CC) $(CFLAGS) -c vm.cpp
 
 kvc: main.o
 	$(CC) $(LDFLAGS) -o kvc main.o
@@ -18,4 +24,4 @@ lazy.o: lazy.cpp KVReader.h
 
 clean:
 	rm -rf *.o
-	rm kvc lazy
+	rm vm kvc lazy
