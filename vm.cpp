@@ -2,17 +2,17 @@
 //Author: elf
 //EMail: elf@elf0.org
 
-#include <stdio.h>
+#include <cstdio>
+#include <cstring>
 #include <map>
-//#include <string>
 
 #include "MMFile.h"
-//#include "String2U.h"
 #include "vmi.h"
 
 //CPU definition
 typedef struct{
   union{
+    Byte byte;
     B bTrue;
     E8 e8;
     U8 u8;
@@ -107,21 +107,8 @@ private:
   std::map<Key, U64, Less> _map;
 };
 
-#define BUFFER_SIZE 65535
-static Byte g_szBuffer[BUFFER_SIZE + 1];
-
-//static U8 g_uTypeRegister = dtI64;
 #define REGISTERS_COUNT 256
 static Register g_szRegisters[REGISTERS_COUNT];
-static Register *g_szrSelectors[REGISTERS_COUNT] = {
-  &g_szRegisters[0], &g_szRegisters[1], &g_szRegisters[2], &g_szRegisters[3],
-  &g_szRegisters[4], &g_szRegisters[5], &g_szRegisters[6], &g_szRegisters[7],
-};
-//static int g_iInputFile = 0;
-//static int g_iOutputFile = 1;
-//static Register *g_prSource = nullptr;
-//static B g_bBooleanRegister = false;
-//static E8 g_eErrorRegister = false;
 
 inline
 static E8 Execute(const Byte *pBegin, const Byte *pEnd, const Byte *pData, const Byte *pDataEnd);
@@ -144,21 +131,14 @@ int main(int argc, char *argv[]){
 }
 
 inline
-static E8 ExecuteInstruction(const Byte **ppBegin, const Byte *pEnd);
+static E8 ExecuteInstruction(const Byte **ppBegin, const Byte **ppEnd);
 
 inline
 static E8 Execute(const Byte *pBegin, const Byte *pEnd, const Byte *pData, const Byte *pDataEnd){
-  //TODO: Remove these in furture
-  g_szRegisters[254].u64 = BUFFER_SIZE;
-  g_szRegisters[255].ptr = g_szBuffer;
-  //  g_szrSelectors[1]->ptr = g_szBuffer;
-  //  g_szrSelectors[2]->u64 = BUFFER_SIZE;
-
   E8 e;
-  //  const Byte *pD = pData;
   const U8 *pI = pBegin;
   while(pI != pEnd){
-    e = ExecuteInstruction(&pI, pEnd);
+    e = ExecuteInstruction(&pI, &pEnd);
     if(e)
       return e;
   }
@@ -167,468 +147,1142 @@ static E8 Execute(const Byte *pBegin, const Byte *pEnd, const Byte *pData, const
 }
 
 inline
-static E8 ExecuteInstruction(const Byte **ppBegin, const Byte *pEnd){
+static E8 ExecuteInstruction(const Byte **ppBegin, const Byte **ppEnd){
+  E8 e = 0;
+  const Byte *pEnd = *ppEnd;
   const Byte *pI = *ppBegin;
 
   switch(*pI++){
   default:
     fprintf(stderr, "Error: Invalid instruction \"%d\"!\n", pI[-1]);
     return 1;
-  case iExit:
-    return g_szrSelectors[0]->e8;
-
-  case iSelectRegister:{
-    const U8 *pE = pI + 2;
-    if(pE > pEnd)
-      goto UNEXPECTED_END;
-
-    U8 index = *pI++;
-    g_szrSelectors[index] = &g_szRegisters[*pI];
-    pI = pE;
-  }break;
-  case iSelectRegisters:{
+  case iExit:{
     if(pI == pEnd)
       goto UNEXPECTED_END;
-    U8 uPairs = *pI++;
 
-    const U8 *pE = pI + (uPairs << 1);
+    e = g_szRegisters[*pI++].e8;
+    *ppEnd = pI;
+    return e;
+  }break;
+  case iZero:{
+    if(pI == pEnd)
+      goto UNEXPECTED_END;
+
+    g_szRegisters[*pI++].u64 = 0;
+  }break;
+  case iLoad8:{
+    const Byte *pE = pI + 2;
     if(pE > pEnd)
       goto UNEXPECTED_END;
 
-    U8 uTarget;
-    while(pI != pE){
-      uTarget = *pI++;
-      g_szrSelectors[uTarget] = &g_szRegisters[*pI++];
-    }
+    U8 uValue = *(U8*)pI++;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoad16:{
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uValue = *(U16*)pI;
+    pI += 2;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoad32:{
+    const Byte *pE = pI + 5;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uValue = *(U32*)pI;
+    pI += 4;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoad64:{
+    const Byte *pE = pI + 9;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uValue = *(U64*)pI;
+    pI += 8;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoadM8:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uValue = *(U8*)g_szRegisters[*pI++].ptr;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoadM16:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uValue = *(U16*)g_szRegisters[*pI++].ptr;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoadM32:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uValue = *(U32*)g_szRegisters[*pI++].ptr;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
+  }break;
+  case iLoadM64:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uValue = *(U64*)g_szRegisters[*pI++].ptr;
+    g_szRegisters[*pI].u64 = uValue;
+    pI = pE;
   }break;
 
-  case iLoadU8:{
-    const U8 *pE = pI + 2;
+  case iSaveM8:{
+    const Byte *pE = pI + 2;
     if(pE > pEnd)
       goto UNEXPECTED_END;
 
-    Register *pR = g_szrSelectors[*pI++];
-    pR->u8 = *pI;
+    U8 uValue = g_szRegisters[*pI++].u8;
+    *(U8*)g_szRegisters[*pI].ptr = uValue;
+    pI = pE;
+  }break;
+  case iSaveM16:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uValue = g_szRegisters[*pI++].u16;
+    *(U16*)g_szRegisters[*pI].ptr = uValue;
+    pI = pE;
+  }break;
+  case iSaveM32:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uValue = g_szRegisters[*pI++].u32;
+    *(U32*)g_szRegisters[*pI].ptr = uValue;
+    pI = pE;
+  }break;
+  case iSaveM64:{
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uValue = g_szRegisters[*pI++].u64;
+    *(U64*)g_szRegisters[*pI].ptr = uValue;
     pI = pE;
   }break;
 
   case iAnd:{
-    g_szrSelectors[0]->bTrue = g_szrSelectors[1]->bTrue && g_szrSelectors[2]->bTrue;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    B bLeft = g_szRegisters[*pI++].bTrue;
+    B bRight = g_szRegisters[*pI++].bTrue;
+    g_szRegisters[*pI].bTrue = bLeft && bRight;
+    pI = pE;
   }break;
   case iOr:{
-    g_szrSelectors[0]->bTrue = g_szrSelectors[1]->bTrue || g_szrSelectors[2]->bTrue;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    B bLeft = g_szRegisters[*pI++].bTrue;
+    B bRight = g_szRegisters[*pI++].bTrue;
+    g_szRegisters[*pI].bTrue = bLeft || bRight;
+    pI = pE;
   }break;
   case iNot:{
-    g_szrSelectors[0]->bTrue = !g_szrSelectors[1]->bTrue;
-  }break;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
 
+    B bValue = g_szRegisters[*pI++].bTrue;
+    g_szRegisters[*pI].bTrue = !bValue;
+    pI = pE;
+  }break;
   case iU8_BitAnd:{
-    g_szrSelectors[0]->u8 = g_szrSelectors[1]->u8 & g_szrSelectors[2]->u8;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uLeft = g_szRegisters[*pI++].u8;
+    U8 uRight = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = uLeft & uRight;
+    pI = pE;
   }break;
   case iU8_BitOr:{
-    g_szrSelectors[0]->u8 = g_szrSelectors[1]->u8 | g_szrSelectors[2]->u8;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uLeft = g_szRegisters[*pI++].u8;
+    U8 uRight = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = uLeft | uRight;
+    pI = pE;
   }break;
   case iU8_BitNot:{
-    g_szrSelectors[0]->u8 = ~g_szrSelectors[1]->u8;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uValue = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = ~uValue;
+    pI = pE;
   }break;
   case iU8_Xor:{
-    g_szrSelectors[0]->u8 = g_szrSelectors[1]->u8 ^ g_szrSelectors[2]->u8;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uLeft = g_szRegisters[*pI++].u8;
+    U8 uRight = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = uLeft ^ uRight;
+    pI = pE;
   }break;
   case iU8_ShiftLeft:{
-    g_szrSelectors[0]->u8 = g_szrSelectors[1]->u8 << g_szrSelectors[2]->u8;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uLeft = g_szRegisters[*pI++].u8;
+    U8 uRight = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = uLeft << uRight;
+    pI = pE;
   }break;
   case iU8_ShiftRight:{
-    g_szrSelectors[0]->u8 = g_szrSelectors[1]->u8 >> g_szrSelectors[2]->u8;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U8 uLeft = g_szRegisters[*pI++].u8;
+    U8 uRight = g_szRegisters[*pI++].u8;
+    g_szRegisters[*pI].u8 = uLeft >> uRight;
+    pI = pE;
   }break;
 
   case iU16_BitAnd:{
-    g_szrSelectors[0]->u16 = g_szrSelectors[1]->u16 & g_szrSelectors[2]->u16;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uLeft = g_szRegisters[*pI++].u16;
+    U16 uRight = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = uLeft & uRight;
+    pI = pE;
   }break;
   case iU16_BitOr:{
-    g_szrSelectors[0]->u16 = g_szrSelectors[1]->u16 | g_szrSelectors[2]->u16;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uLeft = g_szRegisters[*pI++].u16;
+    U16 uRight = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = uLeft | uRight;
+    pI = pE;
   }break;
   case iU16_BitNot:{
-    g_szrSelectors[0]->u16 = ~g_szrSelectors[1]->u16;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uValue = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = ~uValue;
+    pI = pE;
   }break;
   case iU16_Xor:{
-    g_szrSelectors[0]->u16 = g_szrSelectors[1]->u16 ^ g_szrSelectors[2]->u16;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uLeft = g_szRegisters[*pI++].u16;
+    U16 uRight = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = uLeft ^ uRight;
+    pI = pE;
   }break;
   case iU16_ShiftLeft:{
-    g_szrSelectors[0]->u16 = g_szrSelectors[1]->u16 << g_szrSelectors[2]->u16;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uLeft = g_szRegisters[*pI++].u16;
+    U16 uRight = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = uLeft << uRight;
+    pI = pE;
   }break;
   case iU16_ShiftRight:{
-    g_szrSelectors[0]->u16 = g_szrSelectors[1]->u16 >> g_szrSelectors[2]->u16;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U16 uLeft = g_szRegisters[*pI++].u16;
+    U16 uRight = g_szRegisters[*pI++].u16;
+    g_szRegisters[*pI].u16 = uLeft >> uRight;
+    pI = pE;
   }break;
 
   case iU32_BitAnd:{
-    g_szrSelectors[0]->u32 = g_szrSelectors[1]->u32 & g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uLeft = g_szRegisters[*pI++].u32;
+    U32 uRight = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = uLeft & uRight;
+    pI = pE;
   }break;
   case iU32_BitOr:{
-    g_szrSelectors[0]->u32 = g_szrSelectors[1]->u32 | g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uLeft = g_szRegisters[*pI++].u32;
+    U32 uRight = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = uLeft | uRight;
+    pI = pE;
   }break;
   case iU32_BitNot:{
-    g_szrSelectors[0]->u32 = ~g_szrSelectors[1]->u32;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uValue = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = ~uValue;
+    pI = pE;
   }break;
   case iU32_Xor:{
-    g_szrSelectors[0]->u32 = g_szrSelectors[1]->u32 ^ g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uLeft = g_szRegisters[*pI++].u32;
+    U32 uRight = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = uLeft ^ uRight;
+    pI = pE;
   }break;
   case iU32_ShiftLeft:{
-    g_szrSelectors[0]->u32 = g_szrSelectors[1]->u32 << g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uLeft = g_szRegisters[*pI++].u32;
+    U32 uRight = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = uLeft << uRight;
+    pI = pE;
   }break;
   case iU32_ShiftRight:{
-    g_szrSelectors[0]->u32 = g_szrSelectors[1]->u32 >> g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U32 uLeft = g_szRegisters[*pI++].u32;
+    U32 uRight = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].u32 = uLeft >> uRight;
+    pI = pE;
   }break;
 
   case iU64_BitAnd:{
-    g_szrSelectors[0]->u64 = g_szrSelectors[1]->u64 & g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uLeft = g_szRegisters[*pI++].u64;
+    U64 uRight = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = uLeft & uRight;
+    pI = pE;
   }break;
   case iU64_BitOr:{
-    g_szrSelectors[0]->u64 = g_szrSelectors[1]->u64 | g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uLeft = g_szRegisters[*pI++].u64;
+    U64 uRight = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = uLeft | uRight;
+    pI = pE;
   }break;
   case iU64_BitNot:{
-    g_szrSelectors[0]->u64 = ~g_szrSelectors[1]->u64;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uValue = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = ~uValue;
+    pI = pE;
   }break;
   case iU64_Xor:{
-    g_szrSelectors[0]->u64 = g_szrSelectors[1]->u64 ^ g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uLeft = g_szRegisters[*pI++].u64;
+    U64 uRight = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = uLeft ^ uRight;
+    pI = pE;
   }break;
   case iU64_ShiftLeft:{
-    g_szrSelectors[0]->u64 = g_szrSelectors[1]->u64 << g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uLeft = g_szRegisters[*pI++].u64;
+    U64 uRight = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = uLeft << uRight;
+    pI = pE;
   }break;
   case iU64_ShiftRight:{
-    g_szrSelectors[0]->u64 = g_szrSelectors[1]->u64 >> g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uLeft = g_szRegisters[*pI++].u64;
+    U64 uRight = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].u64 = uLeft >> uRight;
+    pI = pE;
   }break;
 
-  case iI8_Add:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 + g_szrSelectors[2]->i8;
-  }break;
-  case iI8_Sub:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 - g_szrSelectors[2]->i8;
-  }break;
-  case iI8_Mul:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 * g_szrSelectors[2]->i8;
-  }break;
-  case iI8_Div:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 / g_szrSelectors[2]->i8;
-  }break;
-  case iI8_Mod:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 % g_szrSelectors[2]->i8;
-  }break;
-  case iI8_ShiftRight:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 >> g_szrSelectors[2]->u8;
-  }break;
+    //  case iI8_Add:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 + g_szrSelectors[2]->i8;
+    //  }break;
+    //  case iI8_Sub:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 - g_szrSelectors[2]->i8;
+    //  }break;
+    //  case iI8_Mul:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 * g_szrSelectors[2]->i8;
+    //  }break;
+    //  case iI8_Div:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 / g_szrSelectors[2]->i8;
+    //  }break;
+    //  case iI8_Mod:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 % g_szrSelectors[2]->i8;
+    //  }break;
+    //  case iI8_ShiftRight:{
+    //    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i8 >> g_szrSelectors[2]->u8;
+    //  }break;
 
-  case iI16_Add:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 + g_szrSelectors[2]->i16;
-  }break;
-  case iI16_Sub:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 - g_szrSelectors[2]->i16;
-  }break;
-  case iI16_Mul:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 * g_szrSelectors[2]->i16;
-  }break;
-  case iI16_Div:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 / g_szrSelectors[2]->i16;
-  }break;
-  case iI16_Mod:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 % g_szrSelectors[2]->i16;
-  }break;
-  case iI16_ShiftRight:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 >> g_szrSelectors[2]->u16;
-  }break;
+    //  case iI16_Add:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 + g_szrSelectors[2]->i16;
+    //  }break;
+    //  case iI16_Sub:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 - g_szrSelectors[2]->i16;
+    //  }break;
+    //  case iI16_Mul:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 * g_szrSelectors[2]->i16;
+    //  }break;
+    //  case iI16_Div:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 / g_szrSelectors[2]->i16;
+    //  }break;
+    //  case iI16_Mod:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 % g_szrSelectors[2]->i16;
+    //  }break;
+    //  case iI16_ShiftRight:{
+    //    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i16 >> g_szrSelectors[2]->u16;
+    //  }break;
 
   case iI32_Add:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 + g_szrSelectors[2]->i32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft + iRight;
+    pI = pE;
   }break;
   case iI32_Sub:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 - g_szrSelectors[2]->i32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft - iRight;
+    pI = pE;
   }break;
   case iI32_Mul:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 * g_szrSelectors[2]->i32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft * iRight;
+    pI = pE;
   }break;
   case iI32_Div:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 / g_szrSelectors[2]->i32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft / iRight;
+    pI = pE;
   }break;
   case iI32_Mod:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 % g_szrSelectors[2]->i32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft % iRight;
+    pI = pE;
   }break;
   case iI32_ShiftRight:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i32 >> g_szrSelectors[2]->u32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iLeft = g_szRegisters[*pI++].i32;
+    I32 iRight = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i32 = iLeft >> iRight;
+    pI = pE;
   }break;
-
-    //  case iI64_AddRegisters:{
-    //    const U8 *pE = pI + 3;
-    //    if(pE > pEnd)
-    //      goto UNEXPECTED_END;
-
-    //    U8 uResult = *pI++;
-    //    I64 iLeft = g_szRegisters[*pI++].i64;
-    //    g_szRegisters[uResult].i64 = iLeft + g_szRegisters[*pI].i64;
-    //    pI = pE;
-    //  }break;
-    //  case iI64_SubRegisters:{
-    //    const U8 *pE = pI + 3;
-    //    if(pE > pEnd)
-    //      goto UNEXPECTED_END;
-
-    //    U8 uResult = *pI++;
-    //    I64 iLeft = g_szRegisters[*pI++].i64;
-    //    g_szRegisters[uResult].i64 = iLeft - g_szRegisters[*pI].i64;
-    //    pI = pE;
-    //  }break;
-    //  case iI64_MulRegisters:{
-    //    const U8 *pE = pI + 3;
-    //    if(pE > pEnd)
-    //      goto UNEXPECTED_END;
-
-    //    U8 uResult = *pI++;
-    //    I64 iLeft = g_szRegisters[*pI++].i64;
-    //    g_szRegisters[uResult].i64 = iLeft * g_szRegisters[*pI].i64;
-    //    pI = pE;
-    //  }break;
-    //  case iI64_DivRegisters:{
-    //    const U8 *pE = pI + 3;
-    //    if(pE > pEnd)
-    //      goto UNEXPECTED_END;
-
-    //    U8 uResult = *pI++;
-    //    I64 iLeft = g_szRegisters[*pI++].i64;
-    //    g_szRegisters[uResult].i64 = iLeft / g_szRegisters[*pI].i64;
-    //    pI = pE;
-    //  }break;
-    //  case iI64_ModRegisters:{
-    //    const U8 *pE = pI + 3;
-    //    if(pE > pEnd)
-    //      goto UNEXPECTED_END;
-
-    //    U8 uResult = *pI++;
-    //    I64 iLeft = g_szRegisters[*pI++].i64;
-    //    g_szRegisters[uResult].i64 = iLeft % g_szRegisters[*pI].i64;
-    //    pI = pE;
-    //  }break;
-
   case iI64_Add:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 + g_szrSelectors[2]->i64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft + iRight;
+    pI = pE;
   }break;
   case iI64_Sub:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 - g_szrSelectors[2]->i64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft - iRight;
+    pI = pE;
   }break;
   case iI64_Mul:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 * g_szrSelectors[2]->i64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft * iRight;
+    pI = pE;
   }break;
   case iI64_Div:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 / g_szrSelectors[2]->i64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft / iRight;
+    pI = pE;
   }break;
   case iI64_Mod:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 % g_szrSelectors[2]->i64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft % iRight;
+    pI = pE;
   }break;
   case iI64_ShiftRight:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i64 >> g_szrSelectors[2]->u64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = iLeft >> iRight;
+    pI = pE;
   }break;
   case iI64_Equal:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 == g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft == iRight;
+    pI = pE;
   }break;
   case iI64_NotEqual:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 != g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft != iRight;
+    pI = pE;
   }break;
   case iI64_Less:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 < g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft < iRight;
+    pI = pE;
   }break;
   case iI64_LessEqual:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 <= g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft <= iRight;
+    pI = pE;
   }break;
   case iI64_Greater:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 > g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft > iRight;
+    pI = pE;
   }break;
   case iI64_GreaterEqual:{
-    g_szrSelectors[0]->bTrue = (g_szrSelectors[1]->i64 >= g_szrSelectors[2]->i64);
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iLeft = g_szRegisters[*pI++].i64;
+    I64 iRight = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].bTrue = iLeft >= iRight;
+    pI = pE;
   }break;
   case iI64_If:{
-    g_szrSelectors[0]->i64 = (g_szrSelectors[1]->bTrue? g_szrSelectors[2]->i64 : g_szrSelectors[3]->i64);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    B bCondition = g_szRegisters[*pI++].bTrue;
+    I64 iTrue = g_szRegisters[*pI++].i64;
+    I64 iFalse = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = bCondition? iTrue : iFalse;
+    pI = pE;
   }break;
   case iI64_In:{
-    I64 iValue = g_szrSelectors[1]->i64;
-    g_szrSelectors[0]->bTrue = (iValue >= g_szrSelectors[2]->i64 && iValue < g_szrSelectors[3]->i64);
-  }break;
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
 
+    I64 iValue = g_szRegisters[*pI++].i64;
+    I64 iBegin = g_szRegisters[*pI++].i64;
+    I64 iEnd = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i64 = (iValue >= iBegin && iValue < iEnd);
+    pI = pE;
+  }break;
   case iF32_Add:{
-    g_szrSelectors[0]->f32 = g_szrSelectors[1]->f32 + g_szrSelectors[2]->f32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F32 fLeft = g_szRegisters[*pI++].f32;
+    F32 fRight = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = fLeft + fRight;
+    pI = pE;
   }break;
   case iF32_Sub:{
-    g_szrSelectors[0]->f32 = g_szrSelectors[1]->f32 - g_szrSelectors[2]->f32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F32 fLeft = g_szRegisters[*pI++].f32;
+    F32 fRight = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = fLeft - fRight;
+    pI = pE;
   }break;
   case iF32_Mul:{
-    g_szrSelectors[0]->f32 = g_szrSelectors[1]->f32 * g_szrSelectors[2]->f32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F32 fLeft = g_szRegisters[*pI++].f32;
+    F32 fRight = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = fLeft * fRight;
+    pI = pE;
   }break;
   case iF32_Div:{
-    g_szrSelectors[0]->f32 = g_szrSelectors[1]->f32 / g_szrSelectors[2]->f32;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F32 fLeft = g_szRegisters[*pI++].f32;
+    F32 fRight = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = fLeft / fRight;
+    pI = pE;
   }break;
   case iF32_If:{
-    g_szrSelectors[0]->f32 = (g_szrSelectors[1]->bTrue? g_szrSelectors[2]->f32 : g_szrSelectors[3]->f32);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    B bCondition = g_szRegisters[*pI++].bTrue;
+    F32 fTrue = g_szRegisters[*pI++].f32;
+    F32 fFalse = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = bCondition? fTrue : fFalse;
+    pI = pE;
   }break;
   case iF32_In:{
-    F32 fValue = g_szrSelectors[1]->f32;
-    g_szrSelectors[0]->bTrue = (fValue >= g_szrSelectors[2]->f32 && fValue < g_szrSelectors[3]->f32);
-  }break;
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
 
+    F32 fValue = g_szRegisters[*pI++].f32;
+    F32 fBegin = g_szRegisters[*pI++].f32;
+    F32 fEnd = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].f32 = (fValue >= fBegin && fValue < fEnd);
+    pI = pE;
+  }break;
   case iF64_Add:{
-    g_szrSelectors[0]->f64 = g_szrSelectors[1]->f64 + g_szrSelectors[2]->f64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F64 fLeft = g_szRegisters[*pI++].f64;
+    F64 fRight = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = fLeft + fRight;
+    pI = pE;
   }break;
   case iF64_Sub:{
-    g_szrSelectors[0]->f64 = g_szrSelectors[1]->f64 - g_szrSelectors[2]->f64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F64 fLeft = g_szRegisters[*pI++].f64;
+    F64 fRight = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = fLeft - fRight;
+    pI = pE;
   }break;
   case iF64_Mul:{
-    g_szrSelectors[0]->f64 = g_szrSelectors[1]->f64 * g_szrSelectors[2]->f64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F64 fLeft = g_szRegisters[*pI++].f64;
+    F64 fRight = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = fLeft * fRight;
+    pI = pE;
   }break;
   case iF64_Div:{
-    g_szrSelectors[0]->f64 = g_szrSelectors[1]->f64 / g_szrSelectors[2]->f64;
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F64 fLeft = g_szRegisters[*pI++].f64;
+    F64 fRight = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = fLeft / fRight;
+    pI = pE;
   }break;
   case iF64_If:{
-    g_szrSelectors[0]->f64 = (g_szrSelectors[1]->bTrue? g_szrSelectors[2]->f64 : g_szrSelectors[3]->f64);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    B bCondition = g_szRegisters[*pI++].bTrue;
+    F64 fTrue = g_szRegisters[*pI++].f64;
+    F64 fFalse = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = bCondition? fTrue : fFalse;
+    pI = pE;
   }break;
   case iF64_In:{
-    F64 fValue = g_szrSelectors[1]->f64;
-    g_szrSelectors[0]->bTrue = (fValue >= g_szrSelectors[2]->f64 && fValue < g_szrSelectors[3]->f64);
-  }break;
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
 
+    F64 fValue = g_szRegisters[*pI++].f64;
+    F64 fBegin = g_szRegisters[*pI++].f64;
+    F64 fEnd = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].f64 = (fValue >= fBegin && fValue < fEnd);
+    pI = pE;
+  }break;
   case iI8ToI16:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i8;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I8 iValue = g_szRegisters[*pI++].i8;
+    g_szRegisters[*pI].i16 = iValue;
+    pI = pE;
   }break;
   case iI8ToI32:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i8;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I8 iValue = g_szRegisters[*pI++].i8;
+    g_szRegisters[*pI].i32 = iValue;
+    pI = pE;
   }break;
   case iI8ToI64:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i8;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I8 iValue = g_szRegisters[*pI++].i8;
+    g_szRegisters[*pI].i64 = iValue;
+    pI = pE;
   }break;
   case iI8ToF32:{
-    g_szrSelectors[0]->f32 = F32(g_szrSelectors[1]->i8);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I8 iValue = g_szRegisters[*pI++].i8;
+    g_szRegisters[*pI].f32 = iValue;
+    pI = pE;
   }break;
   case iI8ToF64:{
-    g_szrSelectors[0]->f64 = F64(g_szrSelectors[1]->i8);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I8 iValue = g_szRegisters[*pI++].i8;
+    g_szRegisters[*pI].f64 = iValue;
+    pI = pE;
   }break;
   case iI16ToI8:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i16;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I16 iValue = g_szRegisters[*pI++].i16;
+    g_szRegisters[*pI].i8 = iValue;
+    pI = pE;
   }break;
   case iI16ToI32:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i16;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I16 iValue = g_szRegisters[*pI++].i16;
+    g_szRegisters[*pI].i32 = iValue;
+    pI = pE;
   }break;
   case iI16ToI64:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i16;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I16 iValue = g_szRegisters[*pI++].i16;
+    g_szRegisters[*pI].i64 = iValue;
+    pI = pE;
   }break;
   case iI16ToF32:{
-    g_szrSelectors[0]->f32 = F32(g_szrSelectors[1]->i16);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I16 iValue = g_szRegisters[*pI++].i16;
+    g_szRegisters[*pI].f32 = iValue;
+    pI = pE;
   }break;
   case iI16ToF64:{
-    g_szrSelectors[0]->f64 = F64(g_szrSelectors[1]->i16);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I16 iValue = g_szRegisters[*pI++].i16;
+    g_szRegisters[*pI].f64 = iValue;
+    pI = pE;
   }break;
   case iI32ToI8:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i32;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iValue = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i8 = iValue;
+    pI = pE;
   }break;
   case iI32ToI16:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i32;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iValue = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i16 = iValue;
+    pI = pE;
   }break;
   case iI32ToI64:{
-    g_szrSelectors[0]->i64 = g_szrSelectors[1]->i32;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iValue = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].i64 = iValue;
+    pI = pE;
   }break;
   case iI32ToF32:{
-    g_szrSelectors[0]->f32 = F32(g_szrSelectors[1]->i32);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iValue = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].f32 = iValue;
+    pI = pE;
   }break;
   case iI32ToF64:{
-    g_szrSelectors[0]->f64 = F64(g_szrSelectors[1]->i32);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iValue = g_szRegisters[*pI++].i32;
+    g_szRegisters[*pI].f64 = iValue;
+    pI = pE;
   }break;
   case iI64ToI8:{
-    g_szrSelectors[0]->i8 = g_szrSelectors[1]->i64;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iValue = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i8 = iValue;
+    pI = pE;
   }break;
   case iI64ToI16:{
-    g_szrSelectors[0]->i16 = g_szrSelectors[1]->i64;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iValue = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i16 = iValue;
+    pI = pE;
   }break;
   case iI64ToI32:{
-    g_szrSelectors[0]->i32 = g_szrSelectors[1]->i64;
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iValue = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].i32 = iValue;
+    pI = pE;
   }break;
   case iI64ToF32:{
-    g_szrSelectors[0]->f32 = F32(g_szrSelectors[1]->i64);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iValue = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].f32 = iValue;
+    pI = pE;
   }break;
   case iI64ToF64:{
-    g_szrSelectors[0]->f64 = F64(g_szrSelectors[1]->i64);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I64 iValue = g_szRegisters[*pI++].i64;
+    g_szRegisters[*pI].f64 = iValue;
+    pI = pE;
   }break;
   case iF32ToI32:{
-    g_szrSelectors[0]->i32 = I32(g_szrSelectors[1]->f32);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F32 fValue = g_szRegisters[*pI++].f32;
+    g_szRegisters[*pI].i32 = fValue;
+    pI = pE;
   }break;
   case iF64ToI64:{
-    g_szrSelectors[0]->i64 = I64(g_szrSelectors[1]->f64);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    F64 fValue = g_szRegisters[*pI++].f64;
+    g_szRegisters[*pI].i64 = fValue;
+    pI = pE;
   }break;
   case iOpen:{
-    g_szrSelectors[0]->i32 = open((char*)g_szrSelectors[1]->ptr, g_szrSelectors[2]->i32, g_szrSelectors[3]->u32);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    char *pFileName = (char*)g_szRegisters[*pI++].ptr;
+    I32 iFlags = g_szRegisters[*pI++].i32;
+    U32 uMod = g_szRegisters[*pI++].u32;
+
+    g_szRegisters[*pI].i32 = open(pFileName, iFlags, uMod);
+    pI = pE;
   }break;
   case iClose:{
-    close(g_szrSelectors[0]->i32);
+    if(pI == pEnd)
+      goto UNEXPECTED_END;
+    close(g_szRegisters[*pI++].i32);
   }break;
   case iInput:{
-    g_szrSelectors[0]->i64 = read(g_szrSelectors[1]->i32, g_szrSelectors[2]->ptr, g_szrSelectors[3]->u64);
-    //    printf("%ld: %.*s\n", size, (int)size, (char*)g_szBuffer);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iFile = g_szRegisters[*pI++].i32;
+    void *pBuffer = g_szRegisters[*pI++].ptr;
+    U64 uSize = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].i64 = read(iFile, pBuffer, uSize);
+    //    printf("Read: %lld\n", g_szRegisters[*pI].i64);
+    pI = pE;
   }break;
   case iOutput:{
-    g_szrSelectors[0]->i64 = write(g_szrSelectors[1]->i32, g_szrSelectors[2]->ptr, g_szrSelectors[3]->u64);
-    //    printf("Wrote: %ld\n", size);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    I32 iFile = g_szRegisters[*pI++].i32;
+    void *pBuffer = g_szRegisters[*pI++].ptr;
+    U64 uSize = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].i64 = write(iFile, pBuffer, uSize);
+    //    printf("Wrote: %lld\n", g_szRegisters[*pI].i64);
+    pI = pE;
   }break;
   case iAllocate:{
-    g_szrSelectors[0]->ptr = (Byte*)malloc(g_szrSelectors[1]->u64);
+    const Byte *pE = pI + 2;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    U64 uSize = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].ptr = (Byte*)malloc(uSize);
+    pI = pE;
   }break;
   case iFree:{
-    free(g_szrSelectors[0]->ptr);
+    if(pI == pEnd)
+      goto UNEXPECTED_END;
+    free(g_szRegisters[*pI++].ptr);
+  }break;
+  case iCopy:{
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    void *pDest = g_szRegisters[*pI++].ptr;
+    void *pSrc = g_szRegisters[*pI++].ptr;
+    memcpy(pDest, pSrc, g_szRegisters[*pI].u64);
+    pI = pE;
+  }break;
+  case iMove:{
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    void *pDest = g_szRegisters[*pI++].ptr;
+    void *pSrc = g_szRegisters[*pI++].ptr;
+    memmove(pDest, pSrc, g_szRegisters[*pI].u64);
+    pI = pE;
   }break;
   case iByte_Skip:{
-    Byte uValue = g_szrSelectors[2]->u8;
-    Byte *p = g_szrSelectors[1]->ptr;
-    while(*p == uValue)
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Byte *p = g_szRegisters[*pI++].ptr;
+    Byte value = g_szRegisters[*pI++].byte;
+    while(*p == value)
       ++p;
 
-    g_szrSelectors[0]->ptr = p;
+    g_szRegisters[*pI].ptr = p;
+    pI = pE;
   }break;
   case iByte_SkipUntil:{
-    Byte uValue = g_szrSelectors[2]->u8;
-    Byte *p = g_szrSelectors[1]->ptr;
-    while(*p != uValue)
+    const Byte *pE = pI + 3;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Byte *p = g_szRegisters[*pI++].ptr;
+    Byte value = g_szRegisters[*pI++].byte;
+    while(*p != value)
       ++p;
 
-    g_szrSelectors[0]->ptr = p;
+    g_szRegisters[*pI].ptr = p;
+    pI = pE;
   }break;
   case iByte_SkipIn:{
-    Byte uBegin = g_szrSelectors[2]->u8;
-    Byte uEnd = g_szrSelectors[3]->u8;
-    Byte *p = g_szrSelectors[1]->ptr;
-    Byte uValue;
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Byte *p = g_szRegisters[*pI++].ptr;
+    Byte begin = g_szRegisters[*pI++].byte;
+    Byte end = g_szRegisters[*pI++].byte;
+    Byte value;
     while(1){
-      uValue = *p;
-      if(uValue < uBegin || uValue >= uEnd)
+      value = *p;
+      if(value < begin || value >= end)
         break;
       ++p;
     }
 
-    g_szrSelectors[0]->ptr = p;
+    g_szRegisters[*pI].ptr = p;
+    pI = pE;
   }break;
   case iMap_New:{
+    if(pI == pEnd)
+      goto UNEXPECTED_END;
     //    g_szrSelectors[0]->ptr = (Byte*)new Map((MapComparer)g_szrSelectors[1]->ptr);
-    g_szrSelectors[0]->ptr = (Byte*)new Map();
+    g_szRegisters[*pI++].ptr = (Byte*)new Map();
   }break;
   case iMap_Delete:{
-    delete (Map*)g_szrSelectors[0]->ptr;
+    if(pI == pEnd)
+      goto UNEXPECTED_END;
+    delete (Map*)g_szRegisters[*pI++].ptr;
   }break;
   case iMap_Add:{
-    Map *pMap = (Map*)g_szrSelectors[1]->ptr;
-    g_szrSelectors[0]->bTrue = pMap->Add(g_szrSelectors[2]->ptr, g_szrSelectors[3]->u32, g_szrSelectors[4]->u64);
+    const Byte *pE = pI + 5;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Map *pMap = (Map*)g_szRegisters[*pI++].ptr;
+    Byte *pKey = g_szRegisters[*pI++].ptr;
+    U32 uKey = g_szRegisters[*pI++].u32;
+    U64 uValue = g_szRegisters[*pI++].u64;
+    g_szRegisters[*pI].bTrue = pMap->Add(pKey, uKey, uValue);
+    pI = pE;
   }break;
   case iMap_Remove:{
-    Map *pMap = (Map*)g_szrSelectors[1]->ptr;
-    g_szrSelectors[0]->bTrue = pMap->Remove(g_szrSelectors[2]->ptr, g_szrSelectors[3]->u32);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Map *pMap = (Map*)g_szRegisters[*pI++].ptr;
+    Byte *pKey = g_szRegisters[*pI++].ptr;
+    U32 uKey = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].bTrue = pMap->Remove(pKey, uKey);
+    pI = pE;
   }break;
   case iMap_Find:{
-    Map *pMap = (Map*)g_szrSelectors[1]->ptr;
-    g_szrSelectors[0]->bTrue = pMap->Find(g_szrSelectors[2]->ptr, g_szrSelectors[3]->u32);
+    const Byte *pE = pI + 4;
+    if(pE > pEnd)
+      goto UNEXPECTED_END;
+
+    Map *pMap = (Map*)g_szRegisters[*pI++].ptr;
+    Byte *pKey = g_szRegisters[*pI++].ptr;
+    U32 uKey = g_szRegisters[*pI++].u32;
+    g_szRegisters[*pI].bTrue = pMap->Find(pKey, uKey);
+    pI = pE;
   }break;
   }
 
   *ppBegin = pI;
-  return 0;
+  return e;
 UNEXPECTED_END:
   fprintf(stderr, "Error: Unexpected instruction end!\n");
   return 1;
